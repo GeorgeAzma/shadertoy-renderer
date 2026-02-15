@@ -46,6 +46,10 @@ user32.SendMessageW.argtypes = [
     ctypes.c_long,
 ]
 user32.SendMessageW.restype = ctypes.c_long
+user32.GetAsyncKeyState.argtypes = [wintypes.INT]
+user32.GetAsyncKeyState.restype = wintypes.SHORT
+
+VK_LBUTTON = 0x01
 
 kernel32 = ctypes.windll.kernel32
 ES_CONTINUOUS = 0x80000000
@@ -122,6 +126,9 @@ class ShadertoyRunner:
         )
         self.text_tex = None
         self.text_size = (0, 0)
+        self.dragging = False
+        self.drag_start_mouse = None
+        self.drag_start_window = None
         self.observer = Observer()
         watch_path = os.path.dirname(shader_path) or "."
         self.observer.schedule(ShaderHandler(self), path=watch_path, recursive=False)
@@ -269,6 +276,25 @@ class ShadertoyRunner:
     def get_window_handle(self):
         return pygame.display.get_wm_info()["window"]
 
+    def is_mouse_over_window(self):
+        point = wintypes.POINT()
+        user32.GetCursorPos(ctypes.byref(point))
+        rect = wintypes.RECT()
+        user32.GetWindowRect(self.get_window_handle(), ctypes.byref(rect))
+        return rect.left <= point.x < rect.right and rect.top <= point.y < rect.bottom
+
+    def get_dpi_scale(self):
+        MONITOR_DEFAULTTONEAREST = 2
+        monitor = user32.MonitorFromWindow(
+            self.get_window_handle(), MONITOR_DEFAULTTONEAREST
+        )
+        dpiX = ctypes.c_uint()
+        dpiY = ctypes.c_uint()
+        ctypes.windll.shcore.GetDpiForMonitor(
+            monitor, 0, ctypes.byref(dpiX), ctypes.byref(dpiY)
+        )
+        return dpiX.value / 96.0
+
     def move_window(self, x, y):
         hwnd = self.get_window_handle()
         user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER)
@@ -286,6 +312,27 @@ class ShadertoyRunner:
     def run(self):
         running = True
         while running:
+            # Handle dragging globally
+            if user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000 and self.is_mouse_over_window():
+                if not self.dragging:
+                    point = wintypes.POINT()
+                    user32.GetCursorPos(ctypes.byref(point))
+                    self.drag_start_mouse = (point.x, point.y)
+                    rect = wintypes.RECT()
+                    user32.GetWindowRect(self.get_window_handle(), ctypes.byref(rect))
+                    self.drag_start_window = (rect.left, rect.top)
+                    self.dragging = True
+                else:
+                    point = wintypes.POINT()
+                    user32.GetCursorPos(ctypes.byref(point))
+                    dx = point.x - self.drag_start_mouse[0]
+                    dy = point.y - self.drag_start_mouse[1]
+                    new_x = self.drag_start_window[0] + dx
+                    new_y = self.drag_start_window[1] + dy
+                    self.move_window(int(round(new_x)), int(round(new_y)))
+            else:
+                self.dragging = False
+
             for event in pygame.event.get():
                 if event.type == QUIT:
                     running = False
@@ -295,10 +342,6 @@ class ShadertoyRunner:
                     elif event.key == K_t:
                         self.toggle_always_on_top()
                 elif event.type == MOUSEBUTTONDOWN:
-                    if event.button == 1:  # Left mouse button - start dragging
-                        hwnd = self.get_window_handle()
-                        user32.ReleaseCapture()
-                        user32.SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
                     self.mouse_buttons = pygame.mouse.get_pressed()
                 elif event.type == MOUSEBUTTONUP:
                     self.mouse_buttons = pygame.mouse.get_pressed()
