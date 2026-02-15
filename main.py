@@ -13,7 +13,6 @@ import ctypes
 from ctypes import wintypes
 
 
-# Windows API constants and functions for window manipulation
 HWND_TOPMOST = -1
 HWND_NOTOPMOST = -2
 SWP_NOMOVE = 0x0002
@@ -312,7 +311,6 @@ class ShadertoyRunner:
     def run(self):
         running = True
         while running:
-            # Handle dragging globally
             if (
                 user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000
                 and self.is_mouse_over_window()
