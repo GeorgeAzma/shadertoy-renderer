@@ -89,7 +89,7 @@ class ShadertoyRunner:
         self.ctx.enable(mgl.BLEND)
         self.ctx.blend_func = (mgl.SRC_ALPHA, mgl.ONE_MINUS_SRC_ALPHA)
         self.font = pygame.font.Font(None, 24)
-        self.smoothing_alpha = 1.0  # 0..1 (higher = less smoothing)
+        self.smoothing_alpha = 0.9  # 0..1 (higher = more smoothing)
         self.smoothed_render_ms = None
         # Create timer query for precise GPU timing
         self.timer_query = self.ctx.query(time=True)
@@ -325,7 +325,7 @@ class ShadertoyRunner:
             else:
                 a = self.smoothing_alpha
                 self.smoothed_render_ms = (
-                    a * render_ms + (1.0 - a) * self.smoothed_render_ms
+                    a * self.smoothed_render_ms + (1.0 - a) * render_ms
                 )
             try:
                 val = self.smoothed_render_ms
