@@ -58,7 +58,7 @@ class ShaderHandler(FileSystemEventHandler):
         self.runner = runner
 
     def on_modified(self, event):
-        if event.src_path.endswith(".frag"):
+        if event.src_path.endswith((".frag", ".glsl")):
             self.runner.needs_reload = True
 
 
@@ -341,7 +341,7 @@ class ShadertoyRunner:
 
 
 if __name__ == "__main__":
-    shader_path = "shader.frag" if len(sys.argv) < 2 else sys.argv[1]
+    shader_path = "shader.glsl" if len(sys.argv) < 2 else sys.argv[1]
     runner = ShadertoyRunner(shader_path)
     # Add custom uniforms here, e.g.:
     # runner.custom_uniforms['iCustom'] = 1.0
