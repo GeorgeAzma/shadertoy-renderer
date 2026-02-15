@@ -47,6 +47,10 @@ user32.SendMessageW.argtypes = [
 user32.SendMessageW.restype = ctypes.c_long
 user32.GetAsyncKeyState.argtypes = [wintypes.INT]
 user32.GetAsyncKeyState.restype = wintypes.SHORT
+user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+user32.SetForegroundWindow.restype = wintypes.BOOL
+user32.BringWindowToTop.argtypes = [wintypes.HWND]
+user32.BringWindowToTop.restype = wintypes.BOOL
 
 VK_LBUTTON = 0x01
 
@@ -76,7 +80,7 @@ class ShadertoyRunner:
         self.frame = 0
         self.mouse_pos = (0, 0)
         self.mouse_buttons = (0, 0, 0)
-        self.always_on_top = True
+        self.always_on_top = False
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
         pygame.init()
         kernel32.SetThreadExecutionState(
@@ -86,6 +90,9 @@ class ShadertoyRunner:
             (width, height), DOUBLEBUF | OPENGL | NOFRAME
         )
         self.toggle_always_on_top()
+        hwnd = self.get_window_handle()
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
         self.ctx = mgl.create_context()
         self.load_shader()
         self.create_quad()
