@@ -170,7 +170,6 @@ class ShadertoyRunner:
             self.program = self.ctx.program(
                 vertex_shader=vert_src, fragment_shader=wrapped
             )
-            print("Shader loaded successfully")
         except Exception as e:
             print(f"Error loading shader: {e}")
             if hasattr(self, "program"):
@@ -179,9 +178,12 @@ class ShadertoyRunner:
                 sys.exit(1)
 
     def reload_shader(self):
-        print("Reloading shader...")
+        start_time = time.perf_counter()
         self.load_shader()
         self.create_quad()
+        end_time = time.perf_counter()
+        reload_time_ms = (end_time - start_time) * 1000
+        print(f"Reloaded in {reload_time_ms:.3f} ms")
 
     def create_quad(self):
         vertices = np.array(
