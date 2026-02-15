@@ -313,7 +313,10 @@ class ShadertoyRunner:
         running = True
         while running:
             # Handle dragging globally
-            if user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000 and self.is_mouse_over_window():
+            if (
+                user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000
+                and self.is_mouse_over_window()
+            ):
                 if not self.dragging:
                     point = wintypes.POINT()
                     user32.GetCursorPos(ctypes.byref(point))
