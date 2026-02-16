@@ -9,6 +9,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import time
 import sys
+import subprocess
+import shutil
+import tempfile
 import ctypes
 from ctypes import wintypes
 
@@ -99,7 +102,7 @@ class ShadertoyRunner:
         self.ctx.enable(mgl.BLEND)
         self.ctx.blend_func = (mgl.SRC_ALPHA, mgl.ONE_MINUS_SRC_ALPHA)
         self.font = pygame.font.Font(None, 24)
-        self.smoothing_alpha = 0.9  # 0..1 (higher = more smoothing)
+        self.smoothing_alpha = 0.97  # 0..1 (higher = more smoothing)
         self.smoothed_render_ms = None
         # Create timer query for precise GPU timing
         self.timer_query = self.ctx.query(time=True)
@@ -146,8 +149,8 @@ class ShadertoyRunner:
                 frag_src = f.read()
             vert_src = """
             #version 450
-            in vec2 in_vert;
-            out vec2 v_uv;
+            layout(location = 0) in vec2 in_vert;
+            layout(location = 0) out vec2 v_uv;
             void main() {
                 gl_Position = vec4(in_vert, 0.0, 1.0);
                 v_uv = in_vert * 0.5 + 0.5;
@@ -155,10 +158,10 @@ class ShadertoyRunner:
             """
             wrapped = f"""
             #version 450
-            uniform vec3 iResolution;
-            uniform float iTime;
-            uniform vec4 iMouse;
-            uniform int iFrame;
+            layout(location = 0) uniform vec3 iResolution;
+            layout(location = 1) uniform float iTime;
+            layout(location = 2) uniform vec4 iMouse;
+            layout(location = 3) uniform int iFrame;
             """
             for name, value in self.custom_uniforms.items():
                 if isinstance(value, float):
@@ -173,22 +176,99 @@ class ShadertoyRunner:
                     elif len(value) == 4:
                         wrapped += f"uniform vec4 {name};\n"
             wrapped += f"""
-            out vec4 fragColor;
+            layout(location = 0) out vec4 fragColor;
             void mainImage(out vec4, in vec2);
             void main() {{
                 mainImage(fragColor, gl_FragCoord.xy);
             }}
+            #line 0
             {frag_src}
             """
             self.program = self.ctx.program(
                 vertex_shader=vert_src, fragment_shader=wrapped
             )
+            # try:
+            #     self._emit_spirv_debug(wrapped)
+            # except Exception:
+            #     pass
         except Exception as e:
             print(f"Error loading shader: {e}")
             if hasattr(self, "program"):
-                pass  # keep old
+                pass
             else:
                 sys.exit(1)
+
+    def _emit_spirv_debug(self, wrapped_src):
+        base_dir = os.path.dirname(self.shader_path) or "."
+        disasm_path = os.path.join(base_dir, "shader.spv.txt")
+
+        tmp_src = None
+        compiled_spv = None
+        opt_spv = None
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False, suffix=".frag", mode="w", encoding="utf-8"
+            )
+            tmp.write(wrapped_src)
+            tmp.close()
+            tmp_src = tmp.name
+
+            compiler = shutil.which("glslangValidator") or shutil.which("glslc")
+            if not compiler:
+                return
+
+            compiled_spv = tmp_src + ".spv"
+            cmd = [compiler, "-G", tmp_src, "-o", compiled_spv]
+
+            p = subprocess.run(cmd, capture_output=True, text=True)
+
+            if p.returncode != 0 or not os.path.exists(compiled_spv):
+                with open(disasm_path, "w", encoding="utf-8") as f:
+                    f.write("// SPIR-V compilation failed\n")
+                    f.write((p.stdout or "") + "\n" + (p.stderr or ""))
+                return
+
+            spirv_opt = shutil.which("spirv-opt")
+            chosen_spv = compiled_spv
+            if spirv_opt:
+                opt_spv = tmp_src + ".opt.spv"
+                p2 = subprocess.run(
+                    [spirv_opt, "-O", compiled_spv, "-o", opt_spv],
+                    capture_output=True,
+                    text=True,
+                )
+                if p2.returncode == 0 and os.path.exists(opt_spv):
+                    chosen_spv = opt_spv
+
+            disasm = shutil.which("spirv-dis")
+            if disasm:
+                subprocess.run(
+                    [disasm, chosen_spv, "-o", disasm_path, "--comment"],
+                    capture_output=True,
+                    text=True,
+                )
+
+            spirv_cross = shutil.which("spirv-cross")
+            if spirv_cross:
+                try:
+                    cross_out = os.path.join(base_dir, "shader.spv.glsl")
+                    p4 = subprocess.run(
+                        [spirv_cross, chosen_spv, "--version", "450"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if p4.returncode == 0 and p4.stdout:
+                        with open(cross_out, "w", encoding="utf-8") as cf:
+                            cf.write(p4.stdout)
+                except Exception:
+                    pass
+        finally:
+            for pth in (tmp_src, compiled_spv, opt_spv):
+                try:
+                    if pth and os.path.exists(pth):
+                        os.remove(pth)
+                except Exception:
+                    pass
 
     def reload_shader(self):
         start_time = time.perf_counter()
@@ -225,12 +305,12 @@ class ShadertoyRunner:
         """Render antialiased text (with shadow) to a texture and draw it at bottom-left."""
         fg = self.font.render(text, True, (255, 255, 255))
         shadow = self.font.render(text, True, (0, 0, 0))
-        shadow.set_alpha(32)  # semi-transparent for soft shadow
+        shadow.set_alpha(48)
         w, h = fg.get_size()
         surf = pygame.Surface((w + 5, h + 5), pygame.SRCALPHA)
         for x in range(5):
             for y in range(5):
-                if x == 2 and y == 2:
+                if x == 2 and y == 2 or x == 0 or y == 0:
                     continue
                 surf.blit(shadow, (x, y))
         surf.blit(fg, (2, 2))
@@ -244,7 +324,6 @@ class ShadertoyRunner:
             self.text_size = (w2, h2)
         else:
             self.text_tex.write(data)
-        # compute NDC rect for bottom-left placement
         left = margin
         bottom_px = self.height - margin
         top_px = bottom_px - h2

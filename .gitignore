@@ -1,2 +1,4 @@
 __pycache__
 shader.glsl
+shader.spv.glsl
+shader.spv.txt
