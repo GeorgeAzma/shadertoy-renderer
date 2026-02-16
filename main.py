@@ -78,6 +78,11 @@ class ShadertoyRunner:
         self.height = height
         self.shader_path = shader_path
         self.custom_uniforms = {}
+        self.custom_uniforms["iAnimation"] = 0.0
+        self.anim_reset_time = 0.0
+        self.paused = False
+        self.pause_accum = 0.0
+        self.pause_start = None
         self.needs_reload = False
         self.start_time = time.perf_counter()
         self.frame = 0
@@ -426,8 +431,27 @@ class ShadertoyRunner:
                 elif event.type == KEYDOWN:
                     if event.key == K_ESCAPE:
                         running = False
+                    elif event.key == K_SPACE:
+                        if not self.paused:
+                            self.paused = True
+                            self.pause_start = time.perf_counter()
+                        else:
+                            self.paused = False
+                            self.pause_accum += time.perf_counter() - self.pause_start
+                            self.pause_start = None
                     elif event.key == K_t:
                         self.toggle_always_on_top()
+                    elif event.key == K_a:
+                        if self.paused and self.pause_start is not None:
+                            t_now = (
+                                self.pause_start - self.start_time - self.pause_accum
+                            )
+                        else:
+                            t_now = (
+                                time.perf_counter() - self.start_time - self.pause_accum
+                            )
+                        self.anim_reset_time = t_now
+                        self.custom_uniforms["iAnimation"] = 0.0
                 elif event.type == MOUSEBUTTONDOWN:
                     self.mouse_buttons = pygame.mouse.get_pressed()
                 elif event.type == MOUSEBUTTONUP:
@@ -437,11 +461,25 @@ class ShadertoyRunner:
             if self.needs_reload:
                 self.reload_shader()
                 self.needs_reload = False
-            current_time = time.perf_counter() - self.start_time
-            self.frame += 1
+
+            if self.paused:
+                if self.pause_start is not None:
+                    current_time = self.pause_start - self.start_time - self.pause_accum
+                else:
+                    current_time = 0.0
+            else:
+                current_time = time.perf_counter() - self.start_time - self.pause_accum
+
+            if not self.paused:
+                self.frame += 1
+
             self._set_uniform("iResolution", (self.width, self.height, 1.0))
             self._set_uniform("iTime", current_time)
             self._set_uniform("iFrame", self.frame)
+            anim_val = current_time - self.anim_reset_time
+            if anim_val < 0.0:
+                anim_val = 0.0
+            self.custom_uniforms["iAnimation"] = float(anim_val)
             mx, my = self.mouse_pos
             buttons = sum(1 for b in self.mouse_buttons if b)
             self._set_uniform("iMouse", (mx, self.height - my, buttons, 0.0))
@@ -461,7 +499,7 @@ class ShadertoyRunner:
                 )
             try:
                 val = self.smoothed_render_ms
-                disp = f"{val:.3f} ms" if val >= 0.01 else "<0.01 ms"
+                disp = f"{val:.3f} ms"
                 self._draw_text_overlay(disp)
             except Exception:
                 pass
