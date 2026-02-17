@@ -2,7 +2,6 @@ import os
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame
-from pygame.locals import *
 import moderngl as mgl
 import numpy as np
 from watchdog.observers import Observer
@@ -54,18 +53,32 @@ class ShadertoyRunner:
         kernel32.SetThreadExecutionState(
             ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
         )
+        pygame.display.gl_set_attribute(pygame.GL_ALPHA_SIZE, 8)
         self.screen = pygame.display.set_mode(
-            (width, height), DOUBLEBUF | OPENGL | NOFRAME
+            (width, height), pygame.DOUBLEBUF | pygame.OPENGL | pygame.NOFRAME
         )
         self.toggle_always_on_top()
         hwnd = self.get_window_handle()
         win32gui.BringWindowToTop(hwnd)
         win32gui.SetForegroundWindow(hwnd)
+
+        class MARGINS(ctypes.Structure):
+            _fields_ = [
+                ("cxLeftWidth", ctypes.c_int),
+                ("cxRightWidth", ctypes.c_int),
+                ("cyTopHeight", ctypes.c_int),
+                ("cyBottomHeight", ctypes.c_int),
+            ]
+
+        dwmapi = ctypes.windll.dwmapi
+        margins = MARGINS(-1, -1, -1, -1)  # -1 = extend over entire client area
+        dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(margins))
         self.ctx = mgl.create_context()
         self.load_shader()
         self.create_quad()
         self.ctx.enable(mgl.BLEND)
         self.ctx.blend_func = (mgl.SRC_ALPHA, mgl.ONE_MINUS_SRC_ALPHA)
+
         self.font = pygame.font.Font(None, 24)
         self.smoothing_alpha = 0.97  # 0..1 (higher = more smoothing)
         self.smoothed_render_ms = None
@@ -145,6 +158,7 @@ class ShadertoyRunner:
             void mainImage(out vec4, in vec2);
             void main() {{
                 mainImage(fragColor, gl_FragCoord.xy);
+                fragColor.rgb *= fragColor.a;
             }}
             #line 0
             {frag_src}
@@ -269,8 +283,7 @@ class ShadertoyRunner:
     def _draw_text_overlay(self, text, margin=6):
         """Render antialiased text (with shadow) to a texture and draw it at bottom-left."""
         fg = self.font.render(text, True, (255, 255, 255))
-        shadow = self.font.render(text, True, (0, 0, 0))
-        shadow.set_alpha(48)
+        shadow = self.font.render(text, True, (0, 0, 0, 48))
         w, h = fg.get_size()
         surf = pygame.Surface((w + 5, h + 5), pygame.SRCALPHA)
         for x in range(5):
@@ -387,12 +400,12 @@ class ShadertoyRunner:
                 self.dragging = False
 
             for event in pygame.event.get():
-                if event.type == QUIT:
+                if event.type == pygame.QUIT:
                     running = False
-                elif event.type == KEYDOWN:
-                    if event.key == K_ESCAPE:
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
                         running = False
-                    elif event.key == K_SPACE:
+                    elif event.key == pygame.K_SPACE:
                         if not self.paused:
                             self.paused = True
                             self.pause_start = time.perf_counter()
@@ -400,9 +413,9 @@ class ShadertoyRunner:
                             self.paused = False
                             self.pause_accum += time.perf_counter() - self.pause_start
                             self.pause_start = None
-                    elif event.key == K_t:
+                    elif event.key == pygame.K_t:
                         self.toggle_always_on_top()
-                    elif event.key == K_a:
+                    elif event.key == pygame.K_a:
                         if self.paused and self.pause_start is not None:
                             t_now = (
                                 self.pause_start - self.start_time - self.pause_accum
@@ -413,11 +426,11 @@ class ShadertoyRunner:
                             )
                         self.anim_reset_time = t_now
                         self.custom_uniforms["iAnimation"] = 0.0
-                elif event.type == MOUSEBUTTONDOWN:
+                elif event.type == pygame.MOUSEBUTTONDOWN:
                     self.mouse_buttons = pygame.mouse.get_pressed()
-                elif event.type == MOUSEBUTTONUP:
+                elif event.type == pygame.MOUSEBUTTONUP:
                     self.mouse_buttons = pygame.mouse.get_pressed()
-                elif event.type == MOUSEMOTION:
+                elif event.type == pygame.MOUSEMOTION:
                     self.mouse_pos = event.pos
             if self.needs_reload:
                 self.reload_shader()
@@ -446,7 +459,7 @@ class ShadertoyRunner:
             self._set_uniform("iMouse", (mx, self.height - my, buttons, 0.0))
             for name, value in self.custom_uniforms.items():
                 self._set_uniform(name, value)
-            self.ctx.clear()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
             with self.timer_query:
                 self.vao.render(mgl.TRIANGLE_STRIP)
             render_ns = self.timer_query.elapsed
