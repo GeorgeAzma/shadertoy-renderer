@@ -80,7 +80,7 @@ class ShadertoyRunner:
         self.ctx.enable(mgl.BLEND)
         self.ctx.blend_func = (mgl.SRC_ALPHA, mgl.ONE_MINUS_SRC_ALPHA)
 
-        self.font = pygame.font.Font(None, 24)
+        self.font = pygame.font.Font("AzeretMono.ttf", 16)
         self.smoothing_alpha = 0.97  # 0..1 (higher = more smoothing)
         self.smoothed_render_ms = None
         # Create timer query for precise GPU timing
@@ -284,9 +284,9 @@ class ShadertoyRunner:
     def _draw_text_overlay(self, text, margin=6):
         """Render antialiased text (with shadow) to a texture and draw it at bottom-left."""
         fg = self.font.render(text, True, (255, 255, 255))
-        shadow = self.font.render(text, True, (0, 0, 0, 48))
         w, h = fg.get_size()
         surf = pygame.Surface((w + 5, h + 5), pygame.SRCALPHA)
+        shadow = self.font.render(text, True, (0, 0, 0, 32))
         for x in range(5):
             for y in range(5):
                 if x == 2 and y == 2 or x == 0 or y == 0:
@@ -477,7 +477,7 @@ class ShadertoyRunner:
             if self.draw_overlay:
                 try:
                     val = self.smoothed_render_ms
-                    disp = f"{val:.3f} ms"
+                    disp = f"{val:.2f} ms" if val > 1 else f"{val * 1000:.0f} us"
                     self._draw_text_overlay(disp)
                 except Exception:
                     pass
