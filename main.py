@@ -48,6 +48,7 @@ class ShadertoyRunner:
         self.mouse_pos = (0, 0)
         self.mouse_buttons = (0, 0, 0)
         self.always_on_top = False
+        self.draw_overlay = True
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
         pygame.init()
         kernel32.SetThreadExecutionState(
@@ -415,6 +416,8 @@ class ShadertoyRunner:
                             self.pause_start = None
                     elif event.key == pygame.K_t:
                         self.toggle_always_on_top()
+                    elif event.key == pygame.K_d:
+                        self.draw_overlay = not self.draw_overlay
                     elif event.key == pygame.K_a:
                         if self.paused and self.pause_start is not None:
                             t_now = (
@@ -471,12 +474,13 @@ class ShadertoyRunner:
                 self.smoothed_render_ms = (
                     a * self.smoothed_render_ms + (1.0 - a) * render_ms
                 )
-            try:
-                val = self.smoothed_render_ms
-                disp = f"{val:.3f} ms"
-                self._draw_text_overlay(disp)
-            except Exception:
-                pass
+            if self.draw_overlay:
+                try:
+                    val = self.smoothed_render_ms
+                    disp = f"{val:.3f} ms"
+                    self._draw_text_overlay(disp)
+                except Exception:
+                    pass
             pygame.display.flip()
         kernel32.SetThreadExecutionState(ES_CONTINUOUS)
         self.observer.stop()
