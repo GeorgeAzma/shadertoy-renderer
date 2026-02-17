@@ -13,49 +13,9 @@ import subprocess
 import shutil
 import tempfile
 import ctypes
-from ctypes import wintypes
-
-
-HWND_TOPMOST = -1
-HWND_NOTOPMOST = -2
-SWP_NOMOVE = 0x0002
-SWP_NOSIZE = 0x0001
-SWP_NOZORDER = 0x0004
-WM_NCLBUTTONDOWN = 0x00A1
-HTCAPTION = 2
-
-user32 = ctypes.windll.user32
-user32.SetWindowPos.argtypes = [
-    wintypes.HWND,
-    wintypes.HWND,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    wintypes.UINT,
-]
-user32.SetWindowPos.restype = wintypes.BOOL
-user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-user32.GetWindowRect.restype = wintypes.BOOL
-user32.GetForegroundWindow.argtypes = []
-user32.GetForegroundWindow.restype = wintypes.HWND
-user32.ReleaseCapture.argtypes = []
-user32.ReleaseCapture.restype = wintypes.BOOL
-user32.SendMessageW.argtypes = [
-    wintypes.HWND,
-    wintypes.UINT,
-    wintypes.WPARAM,
-    ctypes.c_long,
-]
-user32.SendMessageW.restype = ctypes.c_long
-user32.GetAsyncKeyState.argtypes = [wintypes.INT]
-user32.GetAsyncKeyState.restype = wintypes.SHORT
-user32.SetForegroundWindow.argtypes = [wintypes.HWND]
-user32.SetForegroundWindow.restype = wintypes.BOOL
-user32.BringWindowToTop.argtypes = [wintypes.HWND]
-user32.BringWindowToTop.restype = wintypes.BOOL
-
-VK_LBUTTON = 0x01
+import win32con
+import win32gui
+import win32api
 
 kernel32 = ctypes.windll.kernel32
 ES_CONTINUOUS = 0x80000000
@@ -99,8 +59,8 @@ class ShadertoyRunner:
         )
         self.toggle_always_on_top()
         hwnd = self.get_window_handle()
-        user32.BringWindowToTop(hwnd)
-        user32.SetForegroundWindow(hwnd)
+        win32gui.BringWindowToTop(hwnd)
+        win32gui.SetForegroundWindow(hwnd)
         self.ctx = mgl.create_context()
         self.load_shader()
         self.create_quad()
@@ -367,58 +327,59 @@ class ShadertoyRunner:
         return pygame.display.get_wm_info()["window"]
 
     def is_mouse_over_window(self):
-        point = wintypes.POINT()
-        user32.GetCursorPos(ctypes.byref(point))
-        rect = wintypes.RECT()
-        user32.GetWindowRect(self.get_window_handle(), ctypes.byref(rect))
-        return rect.left <= point.x < rect.right and rect.top <= point.y < rect.bottom
-
-    def get_dpi_scale(self):
-        MONITOR_DEFAULTTONEAREST = 2
-        monitor = user32.MonitorFromWindow(
-            self.get_window_handle(), MONITOR_DEFAULTTONEAREST
-        )
-        dpiX = ctypes.c_uint()
-        dpiY = ctypes.c_uint()
-        ctypes.windll.shcore.GetDpiForMonitor(
-            monitor, 0, ctypes.byref(dpiX), ctypes.byref(dpiY)
-        )
-        return dpiX.value / 96.0
+        px, py = win32gui.GetCursorPos()
+        left, top, right, bottom = win32gui.GetWindowRect(self.get_window_handle())
+        return left <= px < right and top <= py < bottom
 
     def move_window(self, x, y):
         hwnd = self.get_window_handle()
-        user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER)
+        win32gui.SetWindowPos(
+            hwnd, 0, x, y, 0, 0, win32con.SWP_NOSIZE | win32con.SWP_NOZORDER
+        )
 
     def toggle_always_on_top(self):
         self.always_on_top = not self.always_on_top
         hwnd = self.get_window_handle()
         if self.always_on_top:
-            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
+            )
         else:
-            user32.SetWindowPos(
-                hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
             )
 
     def run(self):
         running = True
         while running:
             if (
-                user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000
+                win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000
                 and self.is_mouse_over_window()
             ):
                 if not self.dragging:
-                    point = wintypes.POINT()
-                    user32.GetCursorPos(ctypes.byref(point))
-                    self.drag_start_mouse = (point.x, point.y)
-                    rect = wintypes.RECT()
-                    user32.GetWindowRect(self.get_window_handle(), ctypes.byref(rect))
-                    self.drag_start_window = (rect.left, rect.top)
+                    px, py = win32gui.GetCursorPos()
+                    self.drag_start_mouse = (px, py)
+                    left, top, right, bottom = win32gui.GetWindowRect(
+                        self.get_window_handle()
+                    )
+                    self.drag_start_window = (left, top)
                     self.dragging = True
                 else:
-                    point = wintypes.POINT()
-                    user32.GetCursorPos(ctypes.byref(point))
-                    dx = point.x - self.drag_start_mouse[0]
-                    dy = point.y - self.drag_start_mouse[1]
+                    px, py = win32gui.GetCursorPos()
+                    dx = px - self.drag_start_mouse[0]
+                    dy = py - self.drag_start_mouse[1]
                     new_x = self.drag_start_window[0] + dx
                     new_y = self.drag_start_window[1] + dy
                     self.move_window(int(round(new_x)), int(round(new_y)))
