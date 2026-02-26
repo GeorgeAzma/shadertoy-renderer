@@ -32,19 +32,18 @@ class ShaderHandler(FileSystemEventHandler):
 
 
 class ShadertoyRunner:
-    def __init__(self, shader_path, width=640, height=640):
+    def __init__(self, shader_path, width=590, height=590):
         self.width = width
         self.height = height
         self.shader_path = shader_path
         self.custom_uniforms = {}
-        self.custom_uniforms["iAnimation"] = 0.0
-        self.anim_reset_time = 0.0
+        self.custom_uniforms["iAnimation"] = (0.0, 0.0, 0.0, 0.0)
+        self.anim_active = False
         self.paused = False
-        self.pause_accum = 0.0
-        self.pause_start = None
-        self.needs_reload = False
         self.start_time = time.perf_counter()
+        self.time = 0.0
         self.frame = 0
+        self.needs_reload = False
         self.mouse_pos = (0, 0)
         self.mouse_buttons = (0, 0, 0)
         self.always_on_top = False
@@ -81,8 +80,8 @@ class ShadertoyRunner:
         self.ctx.blend_func = (mgl.SRC_ALPHA, mgl.ONE_MINUS_SRC_ALPHA)
 
         self.font = pygame.font.Font("AzeretMono.ttf", 16)
-        self.smoothing_alpha = 0.97  # 0..1 (higher = more smoothing)
-        self.smoothed_render_ms = None
+        self.smoothing_alpha = 0.95  # 0..1 (higher = more smoothing)
+        self.smoothed_render_ms = 0.0
         # Create timer query for precise GPU timing
         self.timer_query = self.ctx.query(time=True)
         overlay_vert = """
@@ -254,8 +253,7 @@ class ShadertoyRunner:
         start_time = time.perf_counter()
         self.load_shader()
         self.create_quad()
-        end_time = time.perf_counter()
-        reload_time_ms = (end_time - start_time) * 1000
+        reload_time_ms = (time.perf_counter() - start_time) * 1000
         print(f"Reloaded in {reload_time_ms:.3f} ms")
 
     def create_quad(self):
@@ -390,7 +388,10 @@ class ShadertoyRunner:
                     )
                     self.drag_start_window = (left, top)
                     self.dragging = True
-                else:
+                elif (
+                    self.drag_start_window is not None
+                    and self.drag_start_mouse is not None
+                ):
                     px, py = win32gui.GetCursorPos()
                     dx = px - self.drag_start_mouse[0]
                     dy = py - self.drag_start_mouse[1]
@@ -407,73 +408,73 @@ class ShadertoyRunner:
                     if event.key == pygame.K_ESCAPE:
                         running = False
                     elif event.key == pygame.K_SPACE:
-                        if not self.paused:
-                            self.paused = True
-                            self.pause_start = time.perf_counter()
-                        else:
-                            self.paused = False
-                            self.pause_accum += time.perf_counter() - self.pause_start
-                            self.pause_start = None
+                        self.paused = not self.paused
                     elif event.key == pygame.K_t:
                         self.toggle_always_on_top()
                     elif event.key == pygame.K_d:
                         self.draw_overlay = not self.draw_overlay
                     elif event.key == pygame.K_a:
-                        if self.paused and self.pause_start is not None:
-                            t_now = (
-                                self.pause_start - self.start_time - self.pause_accum
-                            )
-                        else:
-                            t_now = (
-                                time.perf_counter() - self.start_time - self.pause_accum
-                            )
-                        self.anim_reset_time = t_now
-                        self.custom_uniforms["iAnimation"] = 0.0
+                        self.anim_active = not self.anim_active
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     self.mouse_buttons = pygame.mouse.get_pressed()
                 elif event.type == pygame.MOUSEBUTTONUP:
                     self.mouse_buttons = pygame.mouse.get_pressed()
                 elif event.type == pygame.MOUSEMOTION:
                     self.mouse_pos = event.pos
+
             if self.needs_reload:
                 self.reload_shader()
                 self.needs_reload = False
 
-            if self.paused:
-                if self.pause_start is not None:
-                    current_time = self.pause_start - self.start_time - self.pause_accum
-                else:
-                    current_time = 0.0
-            else:
-                current_time = time.perf_counter() - self.start_time - self.pause_accum
-
             if not self.paused:
+                dt = time.perf_counter() - self.start_time - self.time
+
+                (anim, fast_anim, active_time, unused) = self.custom_uniforms[
+                    "iAnimation"
+                ]
+                if self.anim_active:
+                    anim = min(anim + dt * 0.5, 1)
+                    fast_anim = min(fast_anim + dt * 2.0, 1)
+                    active_time += dt
+                else:
+                    anim = max(anim - dt * 0.25, 0)
+                    fast_anim = max(fast_anim - dt * 2.0, 0)
+                self.custom_uniforms["iAnimation"] = (
+                    anim,
+                    fast_anim,
+                    active_time,
+                    unused,
+                )
+
+                self.time += dt
                 self.frame += 1
+            else:
+                dt = time.perf_counter() - self.start_time - self.time
+                self.start_time += dt
+                dt = 0.0
 
             self._set_uniform("iResolution", (self.width, self.height, 1.0))
-            self._set_uniform("iTime", current_time)
+            self._set_uniform("iTime", self.time)
             self._set_uniform("iFrame", self.frame)
-            anim_val = current_time - self.anim_reset_time
-            if anim_val < 0.0:
-                anim_val = 0.0
-            self.custom_uniforms["iAnimation"] = float(anim_val)
+
             mx, my = self.mouse_pos
             buttons = sum(1 for b in self.mouse_buttons if b)
             self._set_uniform("iMouse", (mx, self.height - my, buttons, 0.0))
+
             for name, value in self.custom_uniforms.items():
                 self._set_uniform(name, value)
+
             self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+
             with self.timer_query:
                 self.vao.render(mgl.TRIANGLE_STRIP)
+
             render_ns = self.timer_query.elapsed
             render_ms = render_ns / 1000000.0
-            if self.smoothed_render_ms is None:
-                self.smoothed_render_ms = render_ms
-            else:
-                a = self.smoothing_alpha
-                self.smoothed_render_ms = (
-                    a * self.smoothed_render_ms + (1.0 - a) * render_ms
-                )
+            a = self.smoothing_alpha
+            self.smoothed_render_ms = (
+                a * self.smoothed_render_ms + (1.0 - a) * render_ms
+            )
             if self.draw_overlay:
                 try:
                     val = self.smoothed_render_ms
@@ -481,7 +482,9 @@ class ShadertoyRunner:
                     self._draw_text_overlay(disp)
                 except Exception:
                     pass
+
             pygame.display.flip()
+
         kernel32.SetThreadExecutionState(ES_CONTINUOUS)
         self.observer.stop()
         self.observer.join()
